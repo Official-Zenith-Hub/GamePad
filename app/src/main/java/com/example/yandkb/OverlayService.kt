@@ -1,10 +1,15 @@
 package com.example.yandkb
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
@@ -17,27 +22,84 @@ import kotlin.math.abs
 
 class OverlayService : Service() {
 
+    private class K(
+        val id: String,
+        val text: String = id,
+        val w: Float = 1f,
+        val go: Int = -1
+    )
+
+    private val wide = setOf("Esc", "Tab", "Caps", "Shift", "Ctrl", "Alt")
+
+    private fun row(vararg s: String) = s.map { K(it, it, if (it in wide) 1.5f else 1f) }
+
+    private val pages: List<List<List<K>>> = listOf(
+        // หน้า 0: ตัวอักษร
+        listOf(
+            row("Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+            row("Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
+            row("Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L"),
+            row("Shift", "Z", "X", "C", "V", "B", "N", "M") + K("⌫", "⌫", 1.5f),
+            listOf(
+                K("Ctrl", "Ctrl", 1.3f),
+                K("Alt", "Alt", 1.3f),
+                K("?123", "?123", 1.3f, go = 1),
+                K("Space", "Space", 4f),
+                K("Enter", "↵", 1.5f)
+            )
+        ),
+        // หน้า 1: ตัวเลขและสัญลักษณ์
+        listOf(
+            row("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+            row("@", "#", "฿", "_", "&", "-", "+", "(", ")", "/"),
+            listOf(K("=\\<", "=\\<", 1.5f, go = 2)) +
+                    row("*", "\"", "'", ":", ";", "!", "?") +
+                    K("⌫", "⌫", 1.5f),
+            listOf(
+                K("กขค", "กขค", 1.5f, go = 0),
+                K(","),
+                K("12/34"),
+                K("Space", "Space", 4f),
+                K("."),
+                K("Enter", "↵", 1.5f)
+            )
+        ),
+        // หน้า 2: สัญลักษณ์เพิ่มเติม
+        listOf(
+            row("~", "`", "|", "•", "√", "π", "÷", "×", "§", "Δ"),
+            row("£", "€", "\$", "¢", "^", "°", "=", "{", "}", "\\"),
+            listOf(K("?123", "?123", 1.5f, go = 1)) +
+                    row("%", "©", "®", "™", "✓", "[", "]") +
+                    K("⌫", "⌫", 1.5f),
+            listOf(
+                K("กขค", "กขค", 1.5f, go = 0),
+                K("<"),
+                K("12/34"),
+                K("Space", "Space", 4f),
+                K(">"),
+                K("Enter", "↵", 1.5f)
+            )
+        )
+    )
+
+    private val allIds = pages.flatten().flatten().filter { it.go < 0 }.map { it.id }.distinct()
+    private val navIds = pages.flatten().flatten().filter { it.go >= 0 }.map { it.id }.toSet()
+
     private lateinit var wm: WindowManager
     private val prefs by lazy { getSharedPreferences("kb2", MODE_PRIVATE) }
 
-    private val rows = listOf(
-        listOf("Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-        listOf("Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
-        listOf("Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L"),
-        listOf("Shift", "Z", "X", "C", "V", "B", "N", "M"),
-        listOf("Ctrl", "Alt", "Space")
-    )
-    private val allKeys = rows.flatten()
     private val keyViews = HashMap<String, TextView>()
     private val binds = HashMap<String, FloatArray>()
     private val dots = HashMap<String, TextView>()
 
     private lateinit var panel: LinearLayout
+    private lateinit var body: LinearLayout
     private lateinit var title: TextView
     private lateinit var editBtn: TextView
     private lateinit var fab: TextView
     private lateinit var fabP: WindowManager.LayoutParams
 
+    private var page = 0
     private var panelShown = false
     private var editing = false
     private var selected: String? = null
@@ -78,8 +140,9 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        startFg()
 
-        allKeys.forEach { k ->
+        allIds.forEach { k ->
             prefs.getString("k_$k", null)?.split(",")?.let {
                 binds[k] = floatArrayOf(it[0].toFloat(), it[1].toFloat())
             }
@@ -89,6 +152,29 @@ class OverlayService : Service() {
         buildFab()
     }
 
+    override fun onStartCommand(intent: Intent?, fl: Int, startId: Int): Int {
+        startFg()
+        return START_STICKY
+    }
+
+    private fun startFg() {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(
+            NotificationChannel("kb", "Yandere Keyboard", NotificationManager.IMPORTANCE_LOW)
+        )
+        val n = Notification.Builder(this, "kb")
+            .setContentTitle("Yandere Keyboard กำลังทำงาน")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, n)
+        }
+    }
+
+    // ---------- คีย์บอร์ด ----------
     private fun buildPanel() {
         panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -118,27 +204,9 @@ class OverlayService : Service() {
         header.addView(close, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(6) })
         panel.addView(header)
 
-        rows.forEach { row ->
-            val r = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-            row.forEach { k ->
-                val weight = when (k) {
-                    "Space" -> 5f
-                    "Shift", "Caps", "Tab", "Ctrl", "Alt", "Esc" -> 1.5f
-                    else -> 1f
-                }
-                val tv = label(k, if (k.length > 1) 11f else 15f)
-                keyViews[k] = tv
-                refreshKey(k)
-                attachKey(tv, k)
-                r.addView(tv, LinearLayout.LayoutParams(0, dp(40), weight).apply {
-                    setMargins(dp(2), dp(2), dp(2), dp(2))
-                })
-            }
-            panel.addView(r)
-        }
+        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        panel.addView(body)
+        renderPage()
 
         val p = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -151,26 +219,62 @@ class OverlayService : Service() {
         wm.addView(panel, p)
     }
 
-    private fun refreshKey(k: String) {
-        val tv = keyViews[k] ?: return
+    private fun renderPage() {
+        KeyAccessibilityService.instance?.releaseAll()
+        body.removeAllViews()
+        keyViews.clear()
+        pages[page].forEach { r ->
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            r.forEach { key ->
+                val tv = label(key.text, if (key.text.length > 1) 11f else 15f)
+                keyViews[key.id] = tv
+                refreshKey(key.id)
+                attachKey(tv, key)
+                line.addView(tv, LinearLayout.LayoutParams(0, dp(40), key.w).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                })
+            }
+            body.addView(line)
+        }
+    }
+
+    private fun refreshKey(id: String) {
+        val tv = keyViews[id] ?: return
         val color = when {
-            k == selected -> "#FFFACC15"
-            binds.containsKey(k) -> "#FFFF4D6D"
+            id == selected -> "#FFFACC15"
+            id in navIds -> "#FF55557A"
+            binds.containsKey(id) -> "#FFFF4D6D"
             else -> "#FF3A3A4A"
         }
         tv.background = bg(Color.parseColor(color), radius = 12f)
-        tv.setTextColor(if (k == selected) Color.BLACK else Color.WHITE)
+        tv.setTextColor(if (id == selected) Color.BLACK else Color.WHITE)
     }
 
-    private fun attachKey(tv: TextView, k: String) {
-        val id = allKeys.indexOf(k) + 1
+    private fun refreshAll() {
+        keyViews.keys.toList().forEach { refreshKey(it) }
+    }
+
+    private fun attachKey(tv: TextView, key: K) {
+        val id = allIds.indexOf(key.id) + 1
         tv.setOnTouchListener { _, e ->
+            if (key.go >= 0) {
+                if (e.actionMasked == MotionEvent.ACTION_UP) {
+                    selected = null
+                    removeCapture()
+                    page = key.go
+                    renderPage()
+                }
+                return@setOnTouchListener true
+            }
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     if (editing) {
-                        selectKey(k)
+                        selectKey(key.id)
                     } else {
-                        val b = binds[k]
+                        val b = binds[key.id]
                         if (b != null) {
                             tv.background = bg(Color.WHITE, radius = 12f)
                             tv.setTextColor(Color.BLACK)
@@ -181,7 +285,7 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (!editing) {
                         KeyAccessibilityService.instance?.release(id)
-                        refreshKey(k)
+                        refreshKey(key.id)
                     }
                 }
             }
@@ -189,6 +293,7 @@ class OverlayService : Service() {
         }
     }
 
+    // ---------- ปุ่มลอย ----------
     private fun buildFab() {
         val size = dp(54)
         fab = label("⌨", 22f).apply {
@@ -241,19 +346,20 @@ class OverlayService : Service() {
         panel.visibility = View.GONE
     }
 
+    // ---------- โหมดตั้งปุ่ม ----------
     private fun toggleEdit() {
         editing = !editing
         selected = null
         removeCapture()
         editBtn.text = if (editing) "✔ เสร็จ" else "✎ ตั้งปุ่ม"
         title.text = if (editing) "แตะปุ่ม แล้วแตะจุดบนจอเกม" else "⌨ Yandere Keyboard"
-        allKeys.forEach { refreshKey(it) }
-        if (editing) allKeys.forEach { updateDot(it) } else removeDots()
+        refreshAll()
+        if (editing) allIds.forEach { updateDot(it) } else removeDots()
     }
 
     private fun selectKey(k: String) {
         selected = k
-        allKeys.forEach { refreshKey(it) }
+        refreshAll()
         showCapture(k)
     }
 
@@ -275,7 +381,7 @@ class OverlayService : Service() {
             setOnClickListener {
                 selected = null
                 removeCapture()
-                allKeys.forEach { refreshKey(it) }
+                refreshAll()
             }
         }
         layer.addView(cancel, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
@@ -289,7 +395,7 @@ class OverlayService : Service() {
                 selected = null
                 removeCapture()
                 updateDot(k)
-                allKeys.forEach { refreshKey(it) }
+                refreshAll()
             }
             true
         }
@@ -336,6 +442,7 @@ class OverlayService : Service() {
         removeDots()
         try { wm.removeView(panel) } catch (_: Exception) {}
         try { wm.removeView(fab) } catch (_: Exception) {}
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 }

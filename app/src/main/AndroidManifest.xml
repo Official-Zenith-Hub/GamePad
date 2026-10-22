@@ -4,7 +4,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="Gaming keyboard"
+        android:icon="@drawable/app_icon"
+        android:label="GamePad"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity android:name=".MainActivity" android:exported="true">
@@ -17,7 +18,7 @@
         <service
             android:name=".KeyboardService"
             android:exported="true"
-            android:label="Gaming keyboard"
+            android:label="GamePad"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />

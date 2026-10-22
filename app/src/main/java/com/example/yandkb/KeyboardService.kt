@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 
 class KeyboardService : InputMethodService() {
 
@@ -118,12 +119,50 @@ class KeyboardService : InputMethodService() {
     private lateinit var body: LinearLayout
     private val held = HashSet<String>()
     private var page = 0
+    private var windowVisible = false
 
     private val toggleReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            if (isInputViewShown) requestHideSelf(0) else showWindow(true)
+            if (windowVisible) {
+                requestHideSelf(0)
+            } else {
+                Toast.makeText(
+                    this@KeyboardService,
+                    "กำลังเปิดคีย์บอร์ด...",
+                    Toast.LENGTH_SHORT
+                ).show()
+                showKeyboard()
+            }
         }
     }
+
+    private fun showKeyboard() {
+        // วิธีที่ 1: สั่งผ่านระบบ (ถ้ามีในเครื่องนี้)
+        try {
+            InputMethodService::class.java
+                .getMethod("requestShowSelf", Int::class.javaPrimitiveType)
+                .invoke(this, 0)
+        } catch (_: Throwable) {
+        }
+        // วิธีที่ 2: สั่งแสดงหน้าต่างเอง
+        try {
+            showWindow(true)
+        } catch (_: Throwable) {
+        }
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+        windowVisible = true
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        windowVisible = false
+    }
+
+    // ให้แสดงแป้นได้เสมอ แม้ไม่มีช่องพิมพ์
+    override fun onShowInputRequested(flags: Int, configChange: Boolean): Boolean = true
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 

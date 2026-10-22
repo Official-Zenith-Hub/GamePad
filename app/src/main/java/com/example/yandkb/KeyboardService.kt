@@ -116,6 +116,15 @@ class KeyboardService : InputMethodService() {
         put("+", KeyEvent.KEYCODE_PLUS)
     }
 
+    // ระดับความโปร่ง: ทึบ / โปร่งกลาง / โปร่งมาก / ล่องหน
+    private val levels = intArrayOf(255, 160, 80, 25)
+    private val textAlphas = intArrayOf(255, 255, 200, 110)
+    private val levelNames = arrayOf("ทึบ", "โปร่งกลาง", "โปร่งมาก", "ล่องหน")
+    private var level = 0
+
+    private val prefs by lazy { getSharedPreferences("gp", MODE_PRIVATE) }
+
+    private lateinit var rootView: LinearLayout
     private lateinit var body: LinearLayout
     private val held = HashSet<String>()
     private var page = 0
@@ -171,6 +180,11 @@ class KeyboardService : InputMethodService() {
         setColor(color)
     }
 
+    private fun withAlpha(hex: String, a: Int): Int {
+        val c = Color.parseColor(hex)
+        return Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
+    }
+
     private fun label(text: String, size: Float) = TextView(this).apply {
         this.text = text
         textSize = size
@@ -180,6 +194,7 @@ class KeyboardService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        level = prefs.getInt("alpha", 0).coerceIn(0, levels.size - 1)
         val f = IntentFilter(ACTION)
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(toggleReceiver, f, Context.RECEIVER_NOT_EXPORTED)
@@ -198,7 +213,7 @@ class KeyboardService : InputMethodService() {
     private fun postNotification() {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
-            NotificationChannel("kbtoggle", "Gaming keyboard", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel("kbtoggle", "GamePad", NotificationManager.IMPORTANCE_LOW)
         )
         val pi = PendingIntent.getBroadcast(
             this, 0,
@@ -206,7 +221,7 @@ class KeyboardService : InputMethodService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val n = Notification.Builder(this, "kbtoggle")
-            .setContentTitle("Gaming keyboard")
+            .setContentTitle("GamePad")
             .setContentText("แตะเพื่อแสดง/ซ่อนคีย์บอร์ด")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
@@ -222,21 +237,39 @@ class KeyboardService : InputMethodService() {
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1A1A22"))
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
+        rootView = root
+        root.setBackgroundColor(withAlpha("#1A1A22", levels[level]))
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(
-            label("⌨ Gaming keyboard", 13f).apply { gravity = Gravity.START },
+            label("⌨ GamePad", 13f).apply { gravity = Gravity.START },
             LinearLayout.LayoutParams(0, -2, 1f)
+        )
+        header.addView(
+            label("◐ โปร่ง", 13f).apply {
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                background = bg(Color.parseColor("#3A3A4A"))
+                setOnClickListener {
+                    level = (level + 1) % levels.size
+                    prefs.edit().putInt("alpha", level).apply()
+                    applyLevel()
+                    Toast.makeText(
+                        this@KeyboardService,
+                        levelNames[level],
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(6) }
         )
         header.addView(label("▼ ซ่อน", 13f).apply {
             setPadding(dp(14), dp(6), dp(14), dp(6))
-            background = bg(Color.parseColor("#FF3A3A4A"))
+            background = bg(Color.parseColor("#3A3A4A"))
             setOnClickListener { requestHideSelf(0) }
         })
         root.addView(header)
@@ -245,6 +278,11 @@ class KeyboardService : InputMethodService() {
         root.addView(body)
         render()
         return root
+    }
+
+    private fun applyLevel() {
+        rootView.setBackgroundColor(withAlpha("#1A1A22", levels[level]))
+        render()
     }
 
     private fun render() {
@@ -258,19 +296,20 @@ class KeyboardService : InputMethodService() {
             }
             r.forEach { key ->
                 val tv = label(key.text, if (key.text.length > 1) 11f else 15f)
-                val base = if (key.go >= 0) "#FF55557A" else "#FF3A3A4A"
-                tv.background = bg(Color.parseColor(base))
+                val base = if (key.go >= 0) "#55557A" else "#3A3A4A"
+                tv.background = bg(withAlpha(base, levels[level]))
+                tv.setTextColor(Color.argb(textAlphas[level], 255, 255, 255))
                 tv.setOnTouchListener { _, e ->
                     when (e.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
-                            tv.background = bg(Color.parseColor("#FFFF4D6D"))
+                            tv.background = bg(Color.parseColor("#FF4D6D"))
                             if (key.go < 0) {
                                 held.add(key.id)
                                 down(key.id)
                             }
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            tv.background = bg(Color.parseColor(base))
+                            tv.background = bg(withAlpha(base, levels[level]))
                             if (key.go >= 0) {
                                 if (e.actionMasked == MotionEvent.ACTION_UP) {
                                     tv.post { page = key.go; render() }

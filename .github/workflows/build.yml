@@ -1,4 +1,4 @@
-GamePad: Build APK
+name: Build APK
 
 on:
   workflow_dispatch:
@@ -28,5 +28,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GamePad Mobile         
+          name: GamePad
           path: GamePad.apk

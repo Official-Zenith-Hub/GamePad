@@ -5,10 +5,13 @@
 
     <application
         android:icon="@drawable/app_icon"
-        android:label="GamePad"
+        android:roundIcon="@drawable/app_icon"
+        android:label="Game Keypad"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -17,8 +20,8 @@
 
         <service
             android:name=".KeyboardService"
+            android:label="Game Keypad"
             android:exported="true"
-            android:label="GamePad"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
@@ -27,5 +30,6 @@
                 android:name="android.view.im"
                 android:resource="@xml/method" />
         </service>
+
     </application>
 </manifest>
